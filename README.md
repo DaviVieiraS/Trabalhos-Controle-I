@@ -1,4 +1,4 @@
-# Control Systems Analysis - Controle I
+# Controle I
 
 Trabalhos da disciplina de Controle I - Análise de sistemas de controle e funções de transferência.
 
