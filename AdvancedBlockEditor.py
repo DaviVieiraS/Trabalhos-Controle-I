@@ -364,6 +364,9 @@ class BlockDiagramView(QGraphicsView):
         self.connecting = False
         self.start_port = None
         
+        # Enable focus to receive key events
+        self.setFocusPolicy(Qt.StrongFocus)
+        
     def mousePressEvent(self, event):
         """Handle mouse press events"""
         if event.button() == Qt.LeftButton:
@@ -404,6 +407,41 @@ class BlockDiagramView(QGraphicsView):
         """Cancel the current connection"""
         self.connecting = False
         self.start_port = None
+        
+    def keyPressEvent(self, event):
+        """Handle key press events"""
+        if event.key() == Qt.Key_Delete:
+            self.delete_selected_items()
+        else:
+            super().keyPressEvent(event)
+            
+    def delete_selected_items(self):
+        """Delete all selected items"""
+        selected_items = self.scene.selectedItems()
+        
+        for item in selected_items:
+            if isinstance(item, BlockItem):
+                # Remove all connections to this block
+                self.remove_block_connections(item)
+                # Remove the block from scene
+                self.scene.removeItem(item)
+            elif isinstance(item, ConnectionItem):
+                # Remove the connection
+                self.scene.removeItem(item)
+                
+    def remove_block_connections(self, block):
+        """Remove all connections related to a block"""
+        # Get all connections in the scene
+        all_connections = []
+        for item in self.scene.items():
+            if isinstance(item, ConnectionItem):
+                all_connections.append(item)
+                
+        # Remove connections that involve this block
+        for connection in all_connections:
+            if (connection.start_port.parent_block == block or 
+                connection.end_port.parent_block == block):
+                self.scene.removeItem(connection)
         
     def add_block(self, block_type, position=None):
         """Add a new block to the diagram"""
