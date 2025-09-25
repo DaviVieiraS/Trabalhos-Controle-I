@@ -19,22 +19,5 @@ Interface gráfica com PyQt5 para análise interativa de funções de transferê
 - Três tipos de conexão (série, paralelo, realimentação)
 - Conversão automática de notação (^ para **)
 
-## Como usar
-
-1. Instalar dependências:
-```bash
-pip install PyQt5 control numpy matplotlib
-```
-
-2. Executar a interface gráfica:
-```bash
-python "Trabalho 0.1.py"
-```
-
-## Exemplos de entrada
-- `10 / (s^2 + 2*s + 10)`
-- `5 / (s^2 + 5)`
-- `1 / (s + 1)`
-
 ## Autor
 **Davi Vieira dos Santos** - Controle I
