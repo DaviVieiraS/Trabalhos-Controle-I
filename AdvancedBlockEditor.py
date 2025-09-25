@@ -85,6 +85,18 @@ class BlockItem(QGraphicsRectItem):
         elif self.block_type == 'transfer_function':
             if self.transfer_function is None:
                 self.transfer_function = 1 / (s + 1)
+            else:
+                # Try to parse the transfer function string
+                try:
+                    # Replace common mathematical notation
+                    tf_str = str(self.transfer_function)
+                    tf_str = tf_str.replace('^', '**')
+                    # Create a safe evaluation environment
+                    safe_dict = {'s': s, 'control': control, 'np': np}
+                    self.transfer_function = eval(tf_str, {"__builtins__": {}}, safe_dict)
+                except:
+                    # If parsing fails, use default
+                    self.transfer_function = 1 / (s + 1)
                 
     def get_effective_transfer_function(self):
         """Get the effective transfer function considering connections"""
@@ -324,8 +336,25 @@ class BlockPropertiesDialog(QDialog):
             self.gain_edit = QLineEdit(str(self.block_item.gain_value))
             layout.addRow("Gain (K):", self.gain_edit)
         elif self.block_item.block_type == 'transfer_function':
+            # Create a more comprehensive transfer function input
+            tf_layout = QVBoxLayout()
+            
             self.tf_edit = QLineEdit("1 / (s + 1)")
-            layout.addRow("Transfer Function:", self.tf_edit)
+            self.tf_edit.setPlaceholderText("Enter transfer function (e.g., 1/(s+1), s/(s^2+2*s+1))")
+            tf_layout.addWidget(self.tf_edit)
+            
+            # Add examples
+            examples_label = QLabel("Examples:")
+            examples_label.setFont(QFont("Arial", 9))
+            examples_label.setStyleSheet("color: #666;")
+            tf_layout.addWidget(examples_label)
+            
+            examples_text = QLabel("• 1/(s+1)\n• s/(s^2+2*s+1)\n• 10/(s^2+3*s+2)\n• (s+1)/(s+2)")
+            examples_text.setFont(QFont("Consolas", 8))
+            examples_text.setStyleSheet("color: #888; background: #f5f5f5; padding: 5px; border-radius: 3px;")
+            tf_layout.addWidget(examples_text)
+            
+            layout.addRow("Transfer Function:", tf_layout)
             
         # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -375,8 +404,62 @@ class BlockDiagramView(QGraphicsView):
                 self.start_connection(item)
             else:
                 super().mousePressEvent(event)
+        elif event.button() == Qt.RightButton:
+            # Show context menu
+            self.show_context_menu(event)
         else:
             super().mousePressEvent(event)
+            
+    def show_context_menu(self, event):
+        """Show context menu for right-click"""
+        item = self.itemAt(event.pos())
+        if isinstance(item, BlockItem):
+            menu = QMenu(self)
+            
+            # Edit properties action
+            edit_action = QAction("Edit Properties", self)
+            edit_action.triggered.connect(lambda: self.edit_block_properties(item))
+            menu.addAction(edit_action)
+            
+            # Delete action
+            delete_action = QAction("Delete Block", self)
+            delete_action.triggered.connect(lambda: self.delete_block(item))
+            menu.addAction(delete_action)
+            
+            # Show menu
+            menu.exec_(self.mapToGlobal(event.pos()))
+        elif isinstance(item, ConnectionItem):
+            menu = QMenu(self)
+            
+            # Delete connection action
+            delete_action = QAction("Delete Connection", self)
+            delete_action.triggered.connect(lambda: self.delete_connection(item))
+            menu.addAction(delete_action)
+            
+            # Show menu
+            menu.exec_(self.mapToGlobal(event.pos()))
+            
+    def edit_block_properties(self, block):
+        """Edit block properties"""
+        dialog = BlockPropertiesDialog(block)
+        if dialog.exec_() == QDialog.Accepted:
+            props = dialog.get_properties()
+            block.name = props['name']
+            if 'gain' in props:
+                block.gain_value = props['gain']
+                block.update_transfer_function()
+            elif 'transfer_function' in props:
+                block.transfer_function = props['transfer_function']
+                block.update_transfer_function()
+                
+    def delete_block(self, block):
+        """Delete a specific block"""
+        self.remove_block_connections(block)
+        self.scene.removeItem(block)
+        
+    def delete_connection(self, connection):
+        """Delete a specific connection"""
+        self.scene.removeItem(connection)
             
     def mouseReleaseEvent(self, event):
         """Handle mouse release events"""
@@ -396,12 +479,36 @@ class BlockDiagramView(QGraphicsView):
         
     def finish_connection(self, end_port):
         """Finish creating a connection"""
-        if self.start_port.port_type != end_port.port_type:
-            # Create connection
-            connection = ConnectionItem(self.start_port, end_port)
-            self.scene.addItem(connection)
+        if (self.start_port.port_type != end_port.port_type and 
+            self.start_port.parent_block != end_port.parent_block):
+            
+            # Check if connection already exists
+            existing_connection = self.check_existing_connection(self.start_port, end_port)
+            if not existing_connection:
+                # Create connection
+                connection = ConnectionItem(self.start_port, end_port)
+                self.scene.addItem(connection)
+            else:
+                QMessageBox.information(self, "Connection Exists", 
+                                      "A connection between these ports already exists!")
+        else:
+            if self.start_port.parent_block == end_port.parent_block:
+                QMessageBox.warning(self, "Invalid Connection", 
+                                  "Cannot connect a block to itself!")
+            else:
+                QMessageBox.warning(self, "Invalid Connection", 
+                                  "Cannot connect two ports of the same type!")
             
         self.cancel_connection()
+        
+    def check_existing_connection(self, start_port, end_port):
+        """Check if a connection already exists between two ports"""
+        for item in self.scene.items():
+            if isinstance(item, ConnectionItem):
+                if ((item.start_port == start_port and item.end_port == end_port) or
+                    (item.start_port == end_port and item.end_port == start_port)):
+                    return True
+        return False
         
     def cancel_connection(self):
         """Cancel the current connection"""
@@ -602,13 +709,38 @@ class BlockDiagramEditor(QMainWindow):
         
         # New diagram button
         new_action = QAction('New', self)
+        new_action.setToolTip('Create new diagram')
         new_action.triggered.connect(self.new_diagram)
         toolbar.addAction(new_action)
         
         toolbar.addSeparator()
         
+        # Quick add buttons
+        toolbar.addWidget(QLabel("Quick Add:"))
+        
+        # Sum button
+        sum_action = QAction('Sum', self)
+        sum_action.setToolTip('Add Sum block')
+        sum_action.triggered.connect(lambda: self.add_block('sum'))
+        toolbar.addAction(sum_action)
+        
+        # Gain button
+        gain_action = QAction('Gain', self)
+        gain_action.setToolTip('Add Gain block')
+        gain_action.triggered.connect(lambda: self.add_block('gain'))
+        toolbar.addAction(gain_action)
+        
+        # Transfer Function button
+        tf_action = QAction('TF', self)
+        tf_action.setToolTip('Add Transfer Function block')
+        tf_action.triggered.connect(lambda: self.add_block('transfer_function'))
+        toolbar.addAction(tf_action)
+        
+        toolbar.addSeparator()
+        
         # Calculate button
         calc_action = QAction('Calculate', self)
+        calc_action.setToolTip('Calculate overall transfer function')
         calc_action.triggered.connect(self.calculate_transfer_function)
         toolbar.addAction(calc_action)
         
