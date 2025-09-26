@@ -55,6 +55,33 @@ class BlockItem(QGraphicsRectItem):
             self.input_ports = [PortItem(self, 'input', 0, 40)]
             self.output_ports = [PortItem(self, 'output', 120, 40)]
             
+        # Add port labels for better visibility
+        self.add_port_labels()
+        
+    def add_port_labels(self):
+        """Add labels to ports for better visibility"""
+        # Add labels for input ports
+        for i, port in enumerate(self.input_ports):
+            label = QGraphicsTextItem(f"In {i+1}" if len(self.input_ports) > 1 else "In")
+            label.setFont(QFont("Arial", 8, QFont.Bold))
+            label.setDefaultTextColor(QColor(0, 0, 0))
+            # Position label relative to block position
+            block_pos = self.pos()
+            port_rect = port.rect()
+            label.setPos(block_pos.x() + port_rect.x() - 25, block_pos.y() + port_rect.y() - 5)
+            self.scene().addItem(label)
+            
+        # Add labels for output ports
+        for i, port in enumerate(self.output_ports):
+            label = QGraphicsTextItem(f"Out {i+1}" if len(self.output_ports) > 1 else "Out")
+            label.setFont(QFont("Arial", 8, QFont.Bold))
+            label.setDefaultTextColor(QColor(0, 0, 0))
+            # Position label relative to block position
+            block_pos = self.pos()
+            port_rect = port.rect()
+            label.setPos(block_pos.x() + port_rect.x() + 20, block_pos.y() + port_rect.y() - 5)
+            self.scene().addItem(label)
+            
     def setup_appearance(self):
         """Set up the visual appearance of the block"""
         colors = {
@@ -153,15 +180,48 @@ class PortItem(QGraphicsEllipseItem):
         self.port_type = port_type
         self.connections = []
         
-        # Set up port appearance
-        self.setRect(0, 0, 12, 12)
-        self.setPos(x - 6, y - 6)
-        self.setBrush(QBrush(QColor(100, 100, 100)))
-        self.setPen(QPen(QColor(0, 0, 0), 1))
+        # Set up port appearance - make them more visible
+        self.setRect(0, 0, 16, 16)  # Larger size
+        self.setPos(x - 8, y - 8)   # Center the larger port
+        self.setBrush(QBrush(QColor(50, 150, 50)))  # Green for input ports
+        self.setPen(QPen(QColor(0, 0, 0), 2))
+        
+        # Set different colors for input vs output ports
+        if port_type == 'input':
+            self.setBrush(QBrush(QColor(50, 150, 50)))  # Green for input
+        else:
+            self.setBrush(QBrush(QColor(150, 50, 50)))  # Red for output
+            
+        # Make ports selectable and movable
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemIsMovable, False)  # Ports don't move independently
         
     def update_position(self):
         """Update port position when parent block moves"""
         pass
+        
+    def paint(self, painter, option, widget):
+        """Custom paint method for ports with hover effects"""
+        # Check if port is being hovered
+        is_hovered = option.state & QGraphicsItem.ItemIsSelectable and option.state & QGraphicsItem.ItemIsUnderMouse
+        
+        if is_hovered:
+            # Make port larger and brighter when hovered
+            painter.setBrush(QBrush(QColor(100, 255, 100) if self.port_type == 'input' else QColor(255, 100, 100)))
+            painter.setPen(QPen(QColor(0, 0, 0), 3))
+            # Draw a larger circle for hover effect
+            painter.drawEllipse(self.rect().adjusted(-2, -2, 2, 2))
+        else:
+            # Normal appearance
+            painter.setBrush(self.brush())
+            painter.setPen(self.pen())
+            painter.drawEllipse(self.rect())
+            
+        # Draw a small inner circle to make it look like a connection point
+        inner_rect = self.rect().adjusted(4, 4, -4, -4)
+        painter.setBrush(QBrush(QColor(255, 255, 255)))
+        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        painter.drawEllipse(inner_rect)
 
 class ConnectionItem(QGraphicsItem):
     """Enhanced connection item with transfer function tracking"""
@@ -423,6 +483,8 @@ class BlockDiagramView(QGraphicsView):
         if event.button() == Qt.LeftButton:
             item = self.itemAt(event.pos())
             if isinstance(item, PortItem):
+                # Highlight the port when clicked
+                item.setSelected(True)
                 self.start_connection(item)
             else:
                 super().mousePressEvent(event)
