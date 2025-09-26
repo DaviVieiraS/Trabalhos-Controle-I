@@ -223,6 +223,27 @@ class ConnectionItem(QGraphicsItem):
             painter.drawLine(end, QPointF(x1, y1))
             painter.drawLine(end, QPointF(x2, y2))
 
+class TempConnectionLine(QGraphicsItem):
+    """Temporary line item for visual feedback during connection"""
+    def __init__(self, start_pos):
+        super().__init__()
+        self.start_pos = start_pos
+        self.end_pos = start_pos
+        
+    def boundingRect(self):
+        """Return the bounding rectangle of the temporary line"""
+        return QRectF(self.start_pos, self.end_pos).normalized()
+        
+    def paint(self, painter, option, widget):
+        """Draw the temporary connection line"""
+        painter.setPen(QPen(QColor(100, 100, 100), 2, Qt.DashLine))
+        painter.drawLine(self.start_pos, self.end_pos)
+        
+    def update_end_point(self, end_pos):
+        """Update the end point of the temporary line"""
+        self.end_pos = end_pos
+        self.update()
+
 class TransferFunctionCalculator:
     """Class to calculate overall transfer function from block diagram"""
     
@@ -392,6 +413,7 @@ class BlockDiagramView(QGraphicsView):
         # Connection state
         self.connecting = False
         self.start_port = None
+        self.temp_line = None  # Temporary line for visual feedback
         
         # Enable focus to receive key events
         self.setFocusPolicy(Qt.StrongFocus)
@@ -461,6 +483,15 @@ class BlockDiagramView(QGraphicsView):
         """Delete a specific connection"""
         self.scene.removeItem(connection)
             
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events"""
+        if self.connecting and self.temp_line:
+            # Update temporary line end point
+            scene_pos = self.mapToScene(event.pos())
+            self.temp_line.update_end_point(scene_pos)
+        else:
+            super().mouseMoveEvent(event)
+            
     def mouseReleaseEvent(self, event):
         """Handle mouse release events"""
         if event.button() == Qt.LeftButton and self.connecting:
@@ -476,6 +507,11 @@ class BlockDiagramView(QGraphicsView):
         """Start creating a connection from a port"""
         self.connecting = True
         self.start_port = port
+        
+        # Create temporary line for visual feedback
+        start_pos = port.scenePos()
+        self.temp_line = TempConnectionLine(start_pos)
+        self.scene.addItem(self.temp_line)
         
     def finish_connection(self, end_port):
         """Finish creating a connection"""
@@ -498,8 +534,13 @@ class BlockDiagramView(QGraphicsView):
             else:
                 QMessageBox.warning(self, "Invalid Connection", 
                                   "Cannot connect two ports of the same type!")
-            
-        self.cancel_connection()
+        
+        # Remove temporary line and reset connection state
+        if self.temp_line:
+            self.scene.removeItem(self.temp_line)
+            self.temp_line = None
+        self.connecting = False
+        self.start_port = None
         
     def check_existing_connection(self, start_port, end_port):
         """Check if a connection already exists between two ports"""
@@ -514,6 +555,11 @@ class BlockDiagramView(QGraphicsView):
         """Cancel the current connection"""
         self.connecting = False
         self.start_port = None
+        
+        # Remove temporary line
+        if self.temp_line:
+            self.scene.removeItem(self.temp_line)
+            self.temp_line = None
         
     def keyPressEvent(self, event):
         """Handle key press events"""
