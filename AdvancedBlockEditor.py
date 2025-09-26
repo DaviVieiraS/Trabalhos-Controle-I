@@ -55,32 +55,7 @@ class BlockItem(QGraphicsRectItem):
             self.input_ports = [PortItem(self, 'input', 0, 40)]
             self.output_ports = [PortItem(self, 'output', 120, 40)]
             
-        # Add port labels for better visibility
-        self.add_port_labels()
-        
-    def add_port_labels(self):
-        """Add labels to ports for better visibility"""
-        # Add labels for input ports
-        for i, port in enumerate(self.input_ports):
-            label = QGraphicsTextItem(f"In {i+1}" if len(self.input_ports) > 1 else "In")
-            label.setFont(QFont("Arial", 8, QFont.Bold))
-            label.setDefaultTextColor(QColor(0, 0, 0))
-            # Position label relative to block position
-            block_pos = self.pos()
-            port_rect = port.rect()
-            label.setPos(block_pos.x() + port_rect.x() - 25, block_pos.y() + port_rect.y() - 5)
-            self.scene().addItem(label)
-            
-        # Add labels for output ports
-        for i, port in enumerate(self.output_ports):
-            label = QGraphicsTextItem(f"Out {i+1}" if len(self.output_ports) > 1 else "Out")
-            label.setFont(QFont("Arial", 8, QFont.Bold))
-            label.setDefaultTextColor(QColor(0, 0, 0))
-            # Position label relative to block position
-            block_pos = self.pos()
-            port_rect = port.rect()
-            label.setPos(block_pos.x() + port_rect.x() + 20, block_pos.y() + port_rect.y() - 5)
-            self.scene().addItem(label)
+        # Port labels will be added after the block is added to the scene
             
     def setup_appearance(self):
         """Set up the visual appearance of the block"""
@@ -660,26 +635,35 @@ class BlockDiagramView(QGraphicsView):
         
     def add_block(self, block_type, position=None):
         """Add a new block to the diagram"""
-        if position is None:
-            position = QPointF(100, 100)
+        try:
+            if position is None:
+                position = QPointF(100, 100)
+                
+            block = BlockItem(block_type, f"{block_type}_{len(self.scene.items())}")
+            block.setPos(position)
+            self.scene.addItem(block)
             
-        block = BlockItem(block_type, f"{block_type}_{len(self.scene.items())}")
-        block.setPos(position)
-        self.scene.addItem(block)
-        
-        # Show properties dialog for certain block types
-        if block_type in ['gain', 'transfer_function']:
-            dialog = BlockPropertiesDialog(block)
-            if dialog.exec_() == QDialog.Accepted:
-                props = dialog.get_properties()
-                block.name = props['name']
-                if 'gain' in props:
-                    block.gain_value = props['gain']
-                    block.update_transfer_function()
-                elif 'transfer_function' in props:
-                    block.transfer_function = props['transfer_function']
+            # Show properties dialog for certain block types
+            if block_type in ['gain', 'transfer_function']:
+                try:
+                    dialog = BlockPropertiesDialog(block)
+                    if dialog.exec_() == QDialog.Accepted:
+                        props = dialog.get_properties()
+                        block.name = props['name']
+                        if 'gain' in props:
+                            block.gain_value = props['gain']
+                            block.update_transfer_function()
+                        elif 'transfer_function' in props:
+                            block.transfer_function = props['transfer_function']
+                except Exception as e:
+                    print(f"Error in properties dialog: {e}")
+                    # Continue with default values
                     
-        return block
+            return block
+        except Exception as e:
+            print(f"Error adding block: {e}")
+            QMessageBox.critical(None, "Error", f"Failed to add block: {str(e)}")
+            return None
         
     def get_all_blocks(self):
         """Get all blocks in the scene"""
@@ -829,19 +813,19 @@ class BlockDiagramEditor(QMainWindow):
         # Sum button
         sum_action = QAction('Sum', self)
         sum_action.setToolTip('Add Sum block')
-        sum_action.triggered.connect(lambda: self.add_block('sum'))
+        sum_action.triggered.connect(self.add_sum_block)
         toolbar.addAction(sum_action)
         
         # Gain button
         gain_action = QAction('Gain', self)
         gain_action.setToolTip('Add Gain block')
-        gain_action.triggered.connect(lambda: self.add_block('gain'))
+        gain_action.triggered.connect(self.add_gain_block)
         toolbar.addAction(gain_action)
         
         # Transfer Function button
         tf_action = QAction('TF', self)
         tf_action.setToolTip('Add Transfer Function block')
-        tf_action.triggered.connect(lambda: self.add_block('transfer_function'))
+        tf_action.triggered.connect(self.add_tf_block)
         toolbar.addAction(tf_action)
         
         toolbar.addSeparator()
@@ -858,6 +842,18 @@ class BlockDiagramEditor(QMainWindow):
         center = self.diagram_view.mapToScene(self.diagram_view.viewport().rect().center())
         self.diagram_view.add_block(block_type, center)
         
+    def add_sum_block(self):
+        """Add a sum block"""
+        self.add_block('sum')
+        
+    def add_gain_block(self):
+        """Add a gain block"""
+        self.add_block('gain')
+        
+    def add_tf_block(self):
+        """Add a transfer function block"""
+        self.add_block('transfer_function')
+        
     def new_diagram(self):
         """Clear the current diagram"""
         self.diagram_view.scene.clear()
@@ -865,18 +861,22 @@ class BlockDiagramEditor(QMainWindow):
         
     def calculate_transfer_function(self):
         """Calculate the overall transfer function of the diagram"""
-        blocks = self.diagram_view.get_all_blocks()
-        connections = self.diagram_view.get_all_connections()
-        
-        if not blocks:
-            QMessageBox.information(self, "No Blocks", "Please add some blocks to the diagram first!")
-            return
+        try:
+            blocks = self.diagram_view.get_all_blocks()
+            connections = self.diagram_view.get_all_connections()
             
-        # Calculate transfer function
-        tf, status = TransferFunctionCalculator.calculate_overall_tf(blocks, connections)
-        
-        # Update results panel
-        self.results_panel.update_results(tf, status)
+            if not blocks:
+                QMessageBox.information(self, "No Blocks", "Please add some blocks to the diagram first!")
+                return
+                
+            # Calculate transfer function
+            tf, status = TransferFunctionCalculator.calculate_overall_tf(blocks, connections)
+            
+            # Update results panel
+            self.results_panel.update_results(tf, status)
+        except Exception as e:
+            print(f"Error calculating transfer function: {e}")
+            QMessageBox.critical(self, "Calculation Error", f"Failed to calculate transfer function: {str(e)}")
 
 def main():
     app = QApplication(sys.argv)
