@@ -155,9 +155,9 @@ class PortItem(QGraphicsEllipseItem):
         self.port_type = port_type
         self.connections = []
         
-        # Set up port appearance - make them more visible
-        self.setRect(0, 0, 16, 16)  # Larger size
-        self.setPos(x - 8, y - 8)   # Center the larger port
+        # Set up port appearance - make them more visible and clickable
+        self.setRect(0, 0, 20, 20)  # Even larger size for easier clicking
+        self.setPos(x - 10, y - 10)   # Center the larger port
         self.setBrush(QBrush(QColor(50, 150, 50)))  # Green for input ports
         self.setPen(QPen(QColor(0, 0, 0), 2))
         
@@ -167,9 +167,13 @@ class PortItem(QGraphicsEllipseItem):
         else:
             self.setBrush(QBrush(QColor(150, 50, 50)))  # Red for output
             
-        # Make ports selectable and movable
+        # Make ports selectable and clickable
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemIsMovable, False)  # Ports don't move independently
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        
+        # Enable mouse tracking for hover effects
+        self.setAcceptHoverEvents(True)
         
     def update_position(self):
         """Update port position when parent block moves"""
@@ -178,14 +182,29 @@ class PortItem(QGraphicsEllipseItem):
     def paint(self, painter, option, widget):
         """Custom paint method for ports with hover effects"""
         # Check if port is being hovered
-        is_hovered = option.state & QGraphicsItem.ItemIsSelectable and option.state & QGraphicsItem.ItemIsUnderMouse
+        is_hovered = option.state & QGraphicsItem.ItemIsUnderMouse
+        is_selected = option.state & QGraphicsItem.ItemIsSelected
         
-        if is_hovered:
-            # Make port larger and brighter when hovered
-            painter.setBrush(QBrush(QColor(100, 255, 100) if self.port_type == 'input' else QColor(255, 100, 100)))
+        # Set up colors based on state
+        if is_hovered or is_selected:
+            # Make port larger and brighter when hovered or selected
+            if self.port_type == 'input':
+                outer_color = QColor(100, 255, 100)
+                inner_color = QColor(200, 255, 200)
+            else:
+                outer_color = QColor(255, 100, 100)
+                inner_color = QColor(255, 200, 200)
+            
+            # Draw outer glow effect
+            painter.setBrush(QBrush(outer_color))
             painter.setPen(QPen(QColor(0, 0, 0), 3))
-            # Draw a larger circle for hover effect
-            painter.drawEllipse(self.rect().adjusted(-2, -2, 2, 2))
+            glow_rect = self.rect().adjusted(-3, -3, 3, 3)
+            painter.drawEllipse(glow_rect)
+            
+            # Draw main port circle
+            painter.setBrush(QBrush(inner_color))
+            painter.setPen(QPen(QColor(0, 0, 0), 2))
+            painter.drawEllipse(self.rect())
         else:
             # Normal appearance
             painter.setBrush(self.brush())
@@ -193,10 +212,36 @@ class PortItem(QGraphicsEllipseItem):
             painter.drawEllipse(self.rect())
             
         # Draw a small inner circle to make it look like a connection point
-        inner_rect = self.rect().adjusted(4, 4, -4, -4)
+        inner_rect = self.rect().adjusted(6, 6, -6, -6)
         painter.setBrush(QBrush(QColor(255, 255, 255)))
         painter.setPen(QPen(QColor(0, 0, 0), 1))
         painter.drawEllipse(inner_rect)
+        
+        # Draw a tiny center dot
+        center_dot = self.rect().adjusted(8, 8, -8, -8)
+        painter.setBrush(QBrush(QColor(0, 0, 0)))
+        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        painter.drawEllipse(center_dot)
+        
+    def hoverEnterEvent(self, event):
+        """Handle mouse hover enter"""
+        self.update()
+        super().hoverEnterEvent(event)
+        
+    def hoverLeaveEvent(self, event):
+        """Handle mouse hover leave"""
+        self.update()
+        super().hoverLeaveEvent(event)
+        
+    def mousePressEvent(self, event):
+        """Handle mouse press on port"""
+        if event.button() == Qt.LeftButton:
+            # Notify the parent view that this port was clicked
+            if hasattr(self.parent_block, 'scene') and self.parent_block.scene():
+                view = self.parent_block.scene().views()[0]
+                if hasattr(view, 'start_connection'):
+                    view.start_connection(self)
+        super().mousePressEvent(event)
 
 class ConnectionItem(QGraphicsItem):
     """Enhanced connection item with transfer function tracking"""
@@ -221,7 +266,15 @@ class ConnectionItem(QGraphicsItem):
         
     def paint(self, painter, option, widget):
         """Draw the connection line with arrow"""
-        painter.setPen(QPen(QColor(0, 0, 0), 2))
+        # Check if connection is selected
+        is_selected = option.state & QGraphicsItem.ItemIsSelected
+        
+        # Set line style based on selection
+        if is_selected:
+            painter.setPen(QPen(QColor(0, 100, 200), 3))  # Blue and thicker when selected
+        else:
+            painter.setPen(QPen(QColor(0, 0, 0), 2))  # Black normal line
+            
         start_pos = self.start_port.scenePos()
         end_pos = self.end_port.scenePos()
         
@@ -230,6 +283,9 @@ class ConnectionItem(QGraphicsItem):
         
         # Draw arrow
         self.draw_arrow(painter, start_pos, end_pos)
+        
+        # Draw connection points at the ends
+        self.draw_connection_points(painter, start_pos, end_pos)
         
     def draw_arrow(self, painter, start, end):
         """Draw an arrow at the end of the connection"""
@@ -257,6 +313,18 @@ class ConnectionItem(QGraphicsItem):
             # Draw arrow
             painter.drawLine(end, QPointF(x1, y1))
             painter.drawLine(end, QPointF(x2, y2))
+            
+    def draw_connection_points(self, painter, start, end):
+        """Draw small circles at connection points"""
+        # Draw start point
+        painter.setBrush(QBrush(QColor(100, 100, 100)))
+        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        start_rect = QRectF(start.x() - 3, start.y() - 3, 6, 6)
+        painter.drawEllipse(start_rect)
+        
+        # Draw end point
+        end_rect = QRectF(end.x() - 3, end.y() - 3, 6, 6)
+        painter.drawEllipse(end_rect)
 
 class TempConnectionLine(QGraphicsItem):
     """Temporary line item for visual feedback during connection"""
